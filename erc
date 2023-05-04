@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.9;
+
+import "https://github.com/exo-digital-labs/ERC721R/blob/main/contracts/ERC721A.sol";
+import "https://github.com/exo-digital-labs/ERC721R/blob/main/contracts/IERC721R.sol"; 
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Linguin is ERC721A , Ownable {
+      uint public constant  MaxSupply = 10000;
+      uint256  public constant mintPrice = 1 ether ;
+      uint256 public constant maxMintPerWallet = 3 ;
+      mapping(uint256 => uint256) public refundEndTImeStamps;
+      uint256 public refundEndTimeStamp;
+      mapping(uint256 => bool) public hasRefunded;
+      address refundAddress;
+      uint256 refundPeriod = 3 minutes;
+
+    constructor() ERC721A("Linguin", "LNG") {
+        refundAddress = address(this);
+        refundEndTimeStamp = block.timestamp + refundPeriod ;
+
+    }
+
+
+    function _baseURI() internal pure override returns (string memory) {
+        return "http//";
+    }
+
+
+
+    function Mint(uint _quantity) public payable  {
+        require(msg.value >= mintPrice * _quantity, "mot enough funds");
+        require(_numberMinted(msg.sender) + _quantity <=  maxMintPerWallet, "Mint Limit" );
+        require(_totalMinted() + _quantity <= MaxSupply, "Sold Out");
+        _safeMint(msg.sender, _quantity);
+        refundEndTimeStamp = block.timestamp + refundPeriod ;
+        for(uint256 i = _currentIndex - _quantity; i < _currentIndex; i++){
+            refundEndTImeStamps[i] = refundEndTimeStamp;
+        }
+    
+    }
+    function refund(uint256 _tokenId) external {
+        require(block.timestamp < getRefundDeadLine(_tokenId), "Refund Period Expired");        
+        require(msg.sender == ownerOf(_tokenId), "Not Your Nft");
+        uint256 refundAmount = getRefundAmount(_tokenId);
+        //Transfer ownership of nft
+        _transfer(msg.sender, address(this), _tokenId);
+        //mark refunded
+        hasRefunded[_tokenId] = true;
+        //refund the price
+        Address.sendValue(payable(msg.sender) , refundAmount);
+    }
+
+    function getRefundDeadLine(uint256 _tokenId) public view returns(uint256){
+       if(hasRefunded[_tokenId]){
+           return 0;
+       }
+       return refundEndTImeStamps[_tokenId]; 
+    }
+
+    function getRefundAmount(uint256 _tokenId) public view returns(uint256){
+       if(hasRefunded[_tokenId]){
+           return 0;
+       }
+        return mintPrice;
+    }
+
+    function withdraw() external onlyOwner {
+       require(block.timestamp > refundEndTimeStamp, "its not passed the period ");
+       uint256 balance = address(this).balance;
+       payable(msg.sender).transfer(balance);
+
+    }
+}
